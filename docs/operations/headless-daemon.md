@@ -1,5 +1,9 @@
 # Linux/macOS 无人值守 daemon
 
+本文说明 daemon 的无人值守模式：`daemon login` 授权机器后，`daemon run --headless` 通过账户中继保持在线。
+它是运行方式，与获取方式无关：单独发布的独立 daemon（`ait-daemon`）和源码构建的 `daemon` 都可以这样运行；
+桌面应用内置的 daemon 由桌面管理，不使用此模式。
+
 此功能需要配套 [ait-server PR #9](https://github.com/ait-app/ait-server/pull/9) 已部署，且中心开启
 `DEVICE_AUTH_ENABLED` 并配置独立签名/回执密钥。生产中心固定为
 `https://aitapp.cn/api`，不能修改。Linux 的 systemd、macOS 的 launchd 安装与管理由外部脚本负责。
