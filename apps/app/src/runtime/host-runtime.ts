@@ -101,6 +101,7 @@ export interface HostRuntimeSnapshot {
   lastOnlineAt: string | null;
   agentDirectoryStatus: HostRuntimeAgentDirectoryStatus;
   agentDirectoryError: string | null;
+  workspaceDirectoryError: string | null;
   hasEverLoadedAgentDirectory: boolean;
   probeByConnectionId: Map<string, ConnectionProbeState>;
   clientGeneration: number;
@@ -597,6 +598,7 @@ export class HostRuntimeController {
       client: null,
       agentDirectoryStatus: "idle",
       agentDirectoryError: null,
+      workspaceDirectoryError: null,
       hasEverLoadedAgentDirectory: false,
       probeByConnectionId: new Map(),
       clientGeneration: 0,
@@ -720,6 +722,10 @@ export class HostRuntimeController {
       agentDirectoryStatus: this.snapshot.hasEverLoadedAgentDirectory ? "ready" : "idle",
       agentDirectoryError: null,
     });
+  }
+
+  markWorkspaceDirectoryError(error: string | null): void {
+    this.updateSnapshot({ workspaceDirectoryError: error });
   }
 
   markStartupError(message: string): void {
@@ -1623,6 +1629,7 @@ export class HostRuntimeStore {
         markAgentLoading: () => controller.markAgentDirectorySyncLoading(),
         markAgentReady: () => controller.markAgentDirectorySyncReady(),
         markAgentError: (error) => controller.markAgentDirectorySyncError(error),
+        markWorkspaceError: (error) => controller.markWorkspaceDirectoryError(error),
       },
       this.replicaCache,
     );
@@ -1985,6 +1992,7 @@ export class HostRuntimeStore {
           markAgentLoading: () => controller.markAgentDirectorySyncLoading(),
           markAgentReady: () => controller.markAgentDirectorySyncReady(),
           markAgentError: (error) => controller.markAgentDirectorySyncError(error),
+          markWorkspaceError: (error) => controller.markWorkspaceDirectoryError(error),
         },
         this.replicaCache,
       );

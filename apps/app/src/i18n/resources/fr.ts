@@ -433,6 +433,7 @@ export const fr: TranslationResources = {
   },
   workspace: {
     route: {
+      loadFailed: "Impossible de charger l’espace de travail",
       loading: "Chargement de l'espace de travail",
       connecting: "De liaison",
       hostOffline: "{{hostName}}est hors ligne",

@@ -432,6 +432,7 @@ export const ja: TranslationResources = {
   },
   workspace: {
     route: {
+      loadFailed: "ワークスペースを読み込めません",
       loading: "ワークスペースを読み込み中",
       connecting: "接続中",
       hostOffline: "{{hostName}}はオフラインです",

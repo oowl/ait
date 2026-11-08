@@ -39,6 +39,8 @@ type FetchAgentsPayload = Awaited<ReturnType<DaemonClient["fetchAgents"]>>;
 type FetchWorkspacesPayload = Awaited<ReturnType<DaemonClient["fetchWorkspaces"]>>;
 
 const PAGE_LIMIT = 200;
+const INITIAL_RETRY_DELAY_MS = 1_000;
+const MAX_RETRY_DELAY_MS = 30_000;
 const AGENT_SORT: NonNullable<FetchAgentsOptions["sort"]> = [
   { key: "updated_at", direction: "desc" },
 ];
@@ -155,6 +157,8 @@ export class DirectorySync {
   private readonly fullDemandSources = new Set<object>();
   private demandRefresh: Promise<void> | null = null;
   private snapshotRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryDelayMs = INITIAL_RETRY_DELAY_MS;
+  private subscriptionGeneration = 0;
   private satisfiedDemandSource: DirectorySourceToken | null = null;
   private cursors: DirectoryCheckpoint = {};
 
@@ -165,6 +169,7 @@ export class DirectorySync {
       markAgentLoading: () => void;
       markAgentReady: () => void;
       markAgentError: (error: string) => void;
+      markWorkspaceError?: (error: string | null) => void;
     },
     private readonly checkpoints?: DirectoryCheckpointStorage,
   ) {
@@ -231,8 +236,10 @@ export class DirectorySync {
   }
 
   private releaseSubscriptions(): void {
+    this.subscriptionGeneration += 1;
     if (this.snapshotRefreshTimer) clearTimeout(this.snapshotRefreshTimer);
     this.snapshotRefreshTimer = null;
+    this.retryDelayMs = INITIAL_RETRY_DELAY_MS;
     for (const subscription of [
       this.agentSubscription,
       this.workspaceSubscription,
@@ -297,6 +304,7 @@ export class DirectorySync {
     }
     this.observeDirectoryEvents();
     const source = this.connection.source;
+    const subscriptionGeneration = this.subscriptionGeneration;
     if (
       !force &&
       this.satisfiedDemandSource?.clientGeneration === source.clientGeneration &&
@@ -304,6 +312,9 @@ export class DirectorySync {
     ) {
       return Promise.resolve();
     }
+    if (this.snapshotRefreshTimer) clearTimeout(this.snapshotRefreshTimer);
+    this.snapshotRefreshTimer = null;
+    let failed = false;
     const refresh =
       this.fullDemandSources.size > 0
         ? this.refreshAll()
@@ -313,8 +324,15 @@ export class DirectorySync {
           ]).then(() => undefined);
     this.demandRefresh = refresh
       .then(() => {
-        this.satisfiedDemandSource = source;
+        if (this.subscriptionGeneration === subscriptionGeneration)
+          this.satisfiedDemandSource = source;
+        this.retryDelayMs = INITIAL_RETRY_DELAY_MS;
         return undefined;
+      })
+      .catch((error: unknown) => {
+        failed = true;
+        this.satisfiedDemandSource = null;
+        throw error;
       })
       .finally(() => {
         this.demandRefresh = null;
@@ -322,11 +340,12 @@ export class DirectorySync {
         if (
           this.hasDemand() &&
           (current.clientGeneration !== source.clientGeneration ||
-            current.connectionEpoch !== source.connectionEpoch)
+            current.connectionEpoch !== source.connectionEpoch ||
+            this.subscriptionGeneration !== subscriptionGeneration)
         ) {
           void this.requestDemandRefresh().catch(() => undefined);
         } else {
-          this.scheduleSnapshotRefresh();
+          this.scheduleSnapshotRefresh(failed);
         }
       });
     return this.demandRefresh;
@@ -338,15 +357,21 @@ export class DirectorySync {
     );
   }
 
-  private scheduleSnapshotRefresh(): void {
+  private scheduleSnapshotRefresh(retry = false): void {
     if (this.snapshotRefreshTimer) clearTimeout(this.snapshotRefreshTimer);
     this.snapshotRefreshTimer = null;
-    if (!this.hasDemand() || !this.getOnlineConnection() || this.supportsDirectorySubscriptions())
+    if (
+      !this.hasDemand() ||
+      !this.getOnlineConnection() ||
+      (!retry && this.supportsDirectorySubscriptions())
+    )
       return;
+    const delayMs = retry ? this.retryDelayMs : 5_000;
+    if (retry) this.retryDelayMs = Math.min(this.retryDelayMs * 2, MAX_RETRY_DELAY_MS);
     this.snapshotRefreshTimer = setTimeout(() => {
       this.snapshotRefreshTimer = null;
       void this.requestDemandRefresh(true).catch(() => undefined);
-    }, 5000);
+    }, delayMs);
   }
 
   refreshDemand(): Promise<void> {
@@ -527,9 +552,17 @@ export class DirectorySync {
           transaction.snapshot.syncModes?.workspaces;
       }
       this.completeWorkspaceRefresh(client, source, transaction);
+      this.callbacks.markWorkspaceError?.(null);
     } catch (error) {
       const deltas = this.workspaceTransactions.fail(transaction);
       if (deltas) for (const delta of deltas) this.applyWorkspaceDelta(delta);
+      if (
+        deltas &&
+        this.isCurrent(client, source) &&
+        !(error instanceof DirectoryRefreshSupersededError)
+      ) {
+        this.callbacks.markWorkspaceError?.(error instanceof Error ? error.message : String(error));
+      }
       throw error;
     }
   }

@@ -431,6 +431,7 @@ export const ptBR: TranslationResources = {
   },
   workspace: {
     route: {
+      loadFailed: "Não foi possível carregar o espaço de trabalho",
       loading: "Carregando workspace",
       connecting: "Conectando",
       hostOffline: "{{hostName}} está offline",

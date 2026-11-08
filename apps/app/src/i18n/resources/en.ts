@@ -424,6 +424,7 @@ export const en = {
   },
   workspace: {
     route: {
+      loadFailed: "Unable to load workspace",
       loading: "Loading workspace",
       connecting: "Connecting",
       hostOffline: "{{hostName}} is offline",

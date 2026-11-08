@@ -116,6 +116,37 @@ function harness(
 }
 
 describe("Rust protocol adapter", () => {
+  it("preserves a healthy Rust connection during foreground verification", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.stopHello();
+    const client = new DaemonClient({
+      url: "ws://127.0.0.1:7316/v1/ws",
+      clientId: "foreground-verification",
+      transportFactory: () => h.transport,
+      reconnect: { enabled: false },
+    });
+    try {
+      const connected = client.connect();
+      h.ready();
+      await connected;
+      client.ensureConnected({ verify: true });
+      const ping = h.last(0);
+      expect(ping.method).toBe("connection.ping");
+      h.sockets[0].message({
+        type: "response",
+        request_id: ping.request_id,
+        result: { nonce: ping.params.nonce },
+      });
+      await vi.advanceTimersByTimeAsync(3_001);
+      expect(client.isConnected).toBe(true);
+      expect(h.sockets.every((socket) => socket.close.mock.calls.length === 0)).toBe(true);
+    } finally {
+      await client.close();
+      vi.useRealTimers();
+    }
+  });
+
   it("completes interleaved SDK file reads using the original request IDs", async () => {
     const h = harness();
     h.stopHello();

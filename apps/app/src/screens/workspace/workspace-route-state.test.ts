@@ -26,6 +26,7 @@ function resolve(input: {
   connectionStatus?: "online" | "offline";
   hasHydratedWorkspaces?: boolean;
   recovery?: WorkspaceRecoveryModel;
+  directoryError?: string | null;
 }) {
   return resolveWorkspaceRouteState({
     hostName: "Laptop",
@@ -34,6 +35,7 @@ function resolve(input: {
     workspace: input.workspace ?? null,
     hasHydratedWorkspaces: input.hasHydratedWorkspaces ?? true,
     recovery: input.recovery ?? { kind: "checking" },
+    directoryError: input.directoryError,
   });
 }
 
@@ -51,6 +53,23 @@ const recoverable = {
 } as const satisfies WorkspaceRecoveryModel;
 
 describe("resolveWorkspaceRouteState", () => {
+  it("exposes initial sync errors and returns to loading on a fresh attempt", () => {
+    expect(resolve({ hasHydratedWorkspaces: false, directoryError: "Request timed out" })).toEqual({
+      kind: "loadFailed",
+      hostName: "Laptop",
+      error: "Request timed out",
+    });
+    expect(resolve({ hasHydratedWorkspaces: false, directoryError: null }).kind).toBe("loading");
+  });
+
+  it("keeps cached content visible when directory revalidation fails", () => {
+    expect(
+      resolve({ workspace: createWorkspaceDescriptor(), directoryError: "Request timed out" }),
+    ).toEqual({ kind: "ready" });
+    expect(resolve({ connectionStatus: "offline", directoryError: "Request timed out" }).kind).toBe(
+      "unreachable",
+    );
+  });
   it("keeps a missing route unreachable while its host is offline", () => {
     expect(resolve({ connectionStatus: "offline" })).toEqual({
       kind: "unreachable",

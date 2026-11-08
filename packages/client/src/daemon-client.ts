@@ -1476,9 +1476,13 @@ export class DaemonClient {
     const transport = this.transport;
     if (!transport || this.connectionVerification === transport) return;
     this.connectionVerification = transport;
-    // A session probe has its own deadline, independent of a heartbeat that the OS
-    // may have suspended. A successful response also proves the session can serve RPCs.
-    void this.ping({ timeoutMs: 3_000 })
+    // Use the transport heartbeat supported by every adapter. Keep a separate
+    // deadline in case measureLatency joins a heartbeat suspended by the OS.
+    let timeout: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => reject(new PingTimeoutError(3_000)), 3_000);
+    });
+    void Promise.race([this.measureLatency({ timeoutMs: 3_000 }), deadline])
       .catch((error: unknown) => {
         if (this.transport !== transport || this.connectionState.status !== "connected") return;
         this.disposeTransport(1001, "Connection verification failed");
@@ -1490,6 +1494,7 @@ export class DaemonClient {
         this.ensureConnected();
       })
       .finally(() => {
+        clearTimeout(timeout);
         if (this.connectionVerification === transport) this.connectionVerification = null;
       });
   }
