@@ -431,6 +431,7 @@ export const ru: TranslationResources = {
   },
   workspace: {
     route: {
+      loadFailed: "Не удалось загрузить рабочее пространство",
       loading: "Загрузка рабочего пространства",
       connecting: "Подключение",
       hostOffline: "{{hostName}} не в сети",

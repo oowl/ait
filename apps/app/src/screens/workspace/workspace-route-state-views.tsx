@@ -1,3 +1,4 @@
+import React from "react";
 import { Text, View } from "react-native";
 import { ArrowLeftToLine, RotateCw, Settings } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
@@ -16,6 +17,7 @@ const foregroundMutedColorMapping = (theme: Theme) => ({
 
 interface WorkspaceRouteStateActions {
   onRetryHost: () => void;
+  onRetryDirectory: () => void;
   onManageHost: () => void;
   onDismissMissingWorkspace: () => void;
   onRecoverWorkspace: () => void;
@@ -29,6 +31,8 @@ export function renderWorkspaceRouteGate(input: {
   switch (input.state.kind) {
     case "loading":
       return <WorkspaceConnecting hostName={input.state.hostName} />;
+    case "loadFailed":
+      return <WorkspaceLoadFailed state={input.state} onRetry={input.actions.onRetryDirectory} />;
     case "missing":
       return (
         <WorkspaceEmptyState
@@ -105,6 +109,28 @@ function WorkspaceConnecting({ hostName }: { hostName: string }) {
         <Text style={styles.title}>{t("workspace.route.loading")}</Text>
         <Text style={styles.description}>{hostName}</Text>
       </View>
+    </View>
+  );
+}
+
+function WorkspaceLoadFailed({
+  state,
+  onRetry,
+}: {
+  state: Extract<WorkspaceRouteState, { kind: "loadFailed" }>;
+  onRetry: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <View style={styles.emptyState}>
+      <View style={styles.textStack}>
+        <Text style={styles.title}>{t("workspace.route.loadFailed")}</Text>
+        <Text style={styles.description}>{state.hostName}</Text>
+        <Text style={styles.error}>{state.error}</Text>
+      </View>
+      <Button size="sm" variant="default" leftIcon={RotateCw} onPress={onRetry}>
+        {t("common.actions.retry")}
+      </Button>
     </View>
   );
 }

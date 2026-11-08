@@ -427,6 +427,7 @@ export const zhCN: TranslationResources = {
   },
   workspace: {
     route: {
+      loadFailed: "无法加载工作区",
       loading: "正在加载 workspace",
       connecting: "正在连接",
       hostOffline: "{{hostName}} 已离线",

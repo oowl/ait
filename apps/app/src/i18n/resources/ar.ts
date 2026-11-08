@@ -427,6 +427,7 @@ export const ar: TranslationResources = {
   },
   workspace: {
     route: {
+      loadFailed: "تعذّر تحميل مساحة العمل",
       loading: "جارٍ تحميل مساحة العمل",
       connecting: "الاتصال",
       hostOffline: "{{hostName}}غير متواجد حالياً",

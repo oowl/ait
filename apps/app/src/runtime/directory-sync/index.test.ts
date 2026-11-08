@@ -151,7 +151,10 @@ class FakeDirectoryClient {
 
 const serverIds = new Set<string>();
 
-function createDirectory(serverId: string): {
+function createDirectory(
+  serverId: string,
+  callbacks: Partial<ConstructorParameters<typeof DirectorySync>[1]> = {},
+): {
   client: FakeDirectoryClient;
   directory: DirectorySync;
 } {
@@ -162,6 +165,7 @@ function createDirectory(serverId: string): {
     markAgentLoading: () => undefined,
     markAgentReady: () => undefined,
     markAgentError: () => undefined,
+    ...callbacks,
   });
   directory.connectionChanged({
     client: client as unknown as DaemonClient,
@@ -1330,4 +1334,150 @@ describe("snapshot-only host directories", () => {
       vi.useRealTimers();
     }
   });
+});
+
+describe("directory failure recovery", () => {
+  function setup(serverId: string) {
+    const markWorkspaceError = vi.fn();
+    const { client, directory } = createDirectory(serverId, { markWorkspaceError });
+    const store = useSessionStore.getState();
+    store.initializeSession(serverId, client as unknown as DaemonClient, 1);
+    store.updateSessionServerInfo(serverId, {
+      serverId,
+      hostname: null,
+      version: "test",
+      features: { workspaceMultiplicity: true, directorySubscriptions: true },
+    });
+    return { client, directory, markWorkspaceError };
+  }
+
+  it("retries failed initial subscriptions with backoff and clears the workspace error on success", async () => {
+    vi.useFakeTimers();
+    const serverId = "retry-initial-subscription";
+    const { client, directory, markWorkspaceError } = setup(serverId);
+    const fetch = vi
+      .spyOn(client, "fetchWorkspaces")
+      .mockRejectedValueOnce(new Error("Request timed out"))
+      .mockRejectedValueOnce(new Error("Host busy"));
+    try {
+      directory.setDemand({}, true);
+      await expect(directory.refreshDemand()).rejects.toThrow("Request timed out");
+      expect(markWorkspaceError).toHaveBeenLastCalledWith("Request timed out");
+      expect(useSessionStore.getState().sessions[serverId]?.hasHydratedWorkspaces).toBe(false);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(markWorkspaceError).toHaveBeenLastCalledWith("Host busy");
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(markWorkspaceError).toHaveBeenLastCalledWith(null);
+      expect(useSessionStore.getState().sessions[serverId]?.hasHydratedWorkspaces).toBe(true);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(fetch).toHaveBeenCalledTimes(3);
+    } finally {
+      directory.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["release", "disconnect", "dispose"])("cancels pending retries on %s", async (action) => {
+    vi.useFakeTimers();
+    const { client, directory } = setup(`cancel-retry-${action}`);
+    const fetch = vi.spyOn(client, "fetchWorkspaces").mockRejectedValue(new Error("Host busy"));
+    const demand = {};
+    try {
+      directory.setDemand(demand, true);
+      await expect(directory.refreshDemand()).rejects.toThrow("Host busy");
+      if (action === "release") directory.setDemand(demand, false);
+      if (action === "disconnect")
+        directory.connectionChanged({
+          client: client as unknown as DaemonClient,
+          status: "offline",
+          source: { clientGeneration: 1, connectionEpoch: 1 },
+        });
+      if (action === "dispose") directory.dispose();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      directory.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("manual retry bypasses backoff without leaving a scheduled duplicate", async () => {
+    vi.useFakeTimers();
+    const { client, directory } = setup("manual-directory-retry");
+    const fetch = vi.spyOn(client, "fetchWorkspaces").mockRejectedValueOnce(new Error("Host busy"));
+    try {
+      directory.setDemand({}, true);
+      await expect(directory.refreshDemand()).rejects.toThrow("Host busy");
+      await directory.refreshDemand();
+      expect(fetch).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      directory.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not publish a failure from a connection superseded by a successful refresh", async () => {
+    const { client, directory, markWorkspaceError } = setup("stale-directory-error");
+    let rejectOld!: (error: Error) => void;
+    vi.spyOn(client, "fetchWorkspaces").mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectOld = reject;
+        }),
+    );
+    try {
+      const old = directory.refreshWorkspaces();
+      await vi.waitFor(() => expect(rejectOld).toBeDefined());
+      directory.connectionChanged({
+        client: client as unknown as DaemonClient,
+        status: "online",
+        source: { clientGeneration: 1, connectionEpoch: 2 },
+      });
+      await directory.refreshWorkspaces();
+      rejectOld(new Error("Old connection failed"));
+      await expect(old).rejects.toThrow("Old connection failed");
+      expect(markWorkspaceError.mock.calls).toEqual([[null]]);
+    } finally {
+      directory.dispose();
+    }
+  });
+});
+
+it("restores subscriptions when workspace demand returns during a released refresh", async () => {
+  const serverId = "reopened-directory-demand";
+  const { client, directory } = createDirectory(serverId);
+  useSessionStore.getState().initializeSession(serverId, client as unknown as DaemonClient, 1);
+  useSessionStore.getState().updateSessionServerInfo(serverId, {
+    serverId,
+    hostname: null,
+    version: "test",
+    features: { workspaceMultiplicity: true },
+  });
+  const finish = client.holdWorkspaceFetch();
+  const observe = vi.spyOn(client, "observeWorkspaces");
+  const demand = {};
+  try {
+    directory.setDemand(demand, true);
+    await vi.waitFor(() => expect(observe).toHaveBeenCalledTimes(1));
+    directory.setDemand(demand, false);
+    directory.setDemand(demand, true);
+    finish({
+      requestId: "old",
+      entries: [],
+      emptyProjects: [],
+      pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+    });
+    await vi.waitFor(() => expect(observe).toHaveBeenCalledTimes(2));
+    await directory.refreshDemand();
+  } finally {
+    directory.dispose();
+  }
 });

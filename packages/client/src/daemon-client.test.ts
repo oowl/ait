@@ -1960,6 +1960,34 @@ test("foreground verification preserves a healthy socket and deduplicates simult
   expect(daemon.closesFromClient()).toEqual([]);
 });
 
+test("foreground verification bounds a heartbeat that was already pending while hidden", async () => {
+  useHeartbeatClock();
+  const first = new FakeDaemon();
+  const second = new FakeDaemon();
+  first.daemonGoesSilent();
+  let attempts = 0;
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "suspended-heartbeat",
+    logger: noopLogger,
+    transportFactory: () => (++attempts === 1 ? first : second).transport,
+  });
+  clients.push(client);
+  const connection = client.connect();
+  first.openConnection();
+  await connection;
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(first.pingTimestamps()).toEqual(["10s"]);
+
+  client.ensureConnected({ verify: true });
+  await vi.advanceTimersByTimeAsync(2_999);
+  expect(attempts).toBe(1);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(attempts).toBe(2);
+  second.openConnection();
+  expect(client.isConnected).toBe(true);
+});
+
 test("an obsolete foreground probe cannot close a replacement connection", async () => {
   useHeartbeatClock();
   const first = new FakeDaemon();

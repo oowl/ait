@@ -1,5 +1,7 @@
 # 概念与架构文档
 
+- [Android 与桌面工作区加载恢复](reports/app-startup-loading-recovery.md)：修复前台误断线、工作区缺失同步需求和首次同步失败后持续加载；包含定向验证与环境限制。
+
 - [Ait 0.0.11 发布说明](reports/release-0.0.11.md)：目录实时更新修复、GitLab 支持、升级说明和发布验证。
 - [Ait 0.0.10 发布说明（构建未发布）](reports/release-0.0.10.md)：首次构建记录与失败原因。
 

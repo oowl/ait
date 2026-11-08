@@ -432,6 +432,7 @@ export const es: TranslationResources = {
   },
   workspace: {
     route: {
+      loadFailed: "No se puede cargar el espacio de trabajo",
       loading: "Cargando espacio de trabajo",
       connecting: "Conectando",
       hostOffline: "{{hostName}}está desconectado",

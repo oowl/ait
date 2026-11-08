@@ -89,6 +89,7 @@ import {
   type WorkspaceRouteState,
 } from "@/screens/workspace/workspace-route-state";
 import { renderWorkspaceRouteGate } from "@/screens/workspace/workspace-route-state-views";
+import { useWorkspaceDirectoryDemand } from "@/screens/workspace/use-workspace-directory-demand";
 import { WorkspaceScriptsButton } from "@/screens/workspace/workspace-scripts-button";
 import {
   buildWorkspaceTabMenuEntries,
@@ -1212,6 +1213,7 @@ function getHostDisplayName(host: { label?: string | null } | null, fallback: st
 
 function useWorkspaceRouteActions(normalizedServerId: string): {
   handleRetryHost: () => void;
+  handleRetryDirectory: () => void;
   handleManageHost: () => void;
   handleDismissMissingWorkspace: () => void;
 } {
@@ -1228,6 +1230,12 @@ function useWorkspaceRouteActions(normalizedServerId: string): {
     }
     router.push(buildSettingsHostRoute(normalizedServerId) as Href);
   }, [normalizedServerId, router]);
+  const handleRetryDirectory = useCallback(() => {
+    if (!normalizedServerId) return;
+    void getHostRuntimeStore()
+      .refreshDirectories(normalizedServerId)
+      .catch(() => undefined);
+  }, [normalizedServerId]);
   const handleDismissMissingWorkspace = useCallback(() => {
     if (router.canGoBack()) {
       router.back();
@@ -1242,6 +1250,7 @@ function useWorkspaceRouteActions(normalizedServerId: string): {
 
   return {
     handleRetryHost,
+    handleRetryDirectory,
     handleManageHost,
     handleDismissMissingWorkspace,
   };
@@ -1266,6 +1275,7 @@ function useResolvedWorkspaceRouteState(input: {
         hostName,
         connectionStatus: hostSnapshot?.connectionStatus ?? "connecting",
         lastError: hostSnapshot?.lastError ?? null,
+        directoryError: hostSnapshot?.workspaceDirectoryError ?? null,
         workspace: input.workspace,
         hasHydratedWorkspaces: input.hasHydratedWorkspaces,
         recovery: input.recovery,
@@ -1274,6 +1284,7 @@ function useResolvedWorkspaceRouteState(input: {
       hostName,
       hostSnapshot?.connectionStatus,
       hostSnapshot?.lastError,
+      hostSnapshot?.workspaceDirectoryError,
       input.workspace,
       input.hasHydratedWorkspaces,
       input.recovery,
@@ -1554,6 +1565,7 @@ function WorkspaceScreenContent({
     [workspaceId],
   );
   const workspaceDescriptor = useWorkspace(normalizedServerId, normalizedWorkspaceId);
+  useWorkspaceDirectoryDemand(normalizedServerId, normalizedWorkspaceId, isRouteFocused);
   useEffect(() => {
     if (!normalizedServerId || !normalizedWorkspaceId || workspaceDescriptor) return;
     void getHostRuntimeStore()
@@ -1561,7 +1573,7 @@ function WorkspaceScreenContent({
       .catch(() => undefined);
   }, [normalizedServerId, normalizedWorkspaceId, workspaceDescriptor]);
   const workspaceScripts = getWorkspaceScripts(workspaceDescriptor);
-  const { handleRetryHost, handleManageHost, handleDismissMissingWorkspace } =
+  const { handleRetryHost, handleRetryDirectory, handleManageHost, handleDismissMissingWorkspace } =
     useWorkspaceRouteActions(normalizedServerId);
 
   const workspaceTerminalScopeKey = useMemo(
@@ -3743,6 +3755,7 @@ function WorkspaceScreenContent({
     state: workspaceRouteState,
     actions: {
       onRetryHost: handleRetryHost,
+      onRetryDirectory: handleRetryDirectory,
       onManageHost: handleManageHost,
       onDismissMissingWorkspace: handleDismissMissingWorkspace,
       onRecoverWorkspace: workspaceRecovery.restore,

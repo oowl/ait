@@ -428,6 +428,7 @@ export const ko: TranslationResources = {
   },
   workspace: {
     route: {
+      loadFailed: "작업 공간을 불러올 수 없습니다",
       loading: "워크스페이스 불러오는 중",
       connecting: "연결 중",
       hostOffline: "{{hostName}}이(가) 오프라인입니다",
